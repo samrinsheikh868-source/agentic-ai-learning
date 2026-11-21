@@ -21,6 +21,24 @@ JSEARCH_API_KEY = os.getenv("JSEARCH_API_KEY")
 JSEARCH_URL = "https://api.openwebninja.com/jsearch/search-v2"
 MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
+CITIES = {
+    "in": ["Bengaluru", "Mumbai", "Delhi", "Gurugram", "Noida", "Hyderabad",
+           "Pune", "Chennai", "Kolkata", "Ahmedabad", "Jaipur"],
+    "us": ["New York", "San Francisco", "Austin", "Seattle", "Chicago", "Boston"],
+    "gb": ["London", "Manchester", "Birmingham"],
+    "ca": ["Toronto", "Vancouver", "Montreal"],
+    "au": ["Sydney", "Melbourne", "Brisbane"],
+    "de": ["Berlin", "Munich", "Hamburg"],
+    "sg": ["Singapore"],
+    "ae": ["Dubai", "Abu Dhabi"],
+}
+
+COUNTRY_LABELS = {
+    "in": "India", "us": "United States", "gb": "United Kingdom",
+    "ca": "Canada", "au": "Australia", "de": "Germany",
+    "sg": "Singapore", "ae": "UAE",
+}
+
 SYSTEM_PROMPT = """You are a job search assistant.
 
 When the user asks for jobs, call search_job exactly once.
@@ -160,14 +178,17 @@ def build_tool(
     limit: int,
     remote_only: bool,
     skills: tuple[str, ...],
+    location: str,
 ):
     """Tool bound to the sidebar filters. Scores here so the LLM never sees full descriptions."""
 
     @tool
     def search_job(query: str) -> list:
         """Search live job postings for a role and a location."""
+        search_query = f"{query} in {location}" if location else query
+
         params = {
-            "query": query,
+            "query": search_query,
             "country": country,
             "date_posted": date_posted,
             "num_pages": 1,
@@ -223,11 +244,12 @@ def get_agent(
     limit: int,
     remote_only: bool,
     skills: tuple[str, ...],
+    location: str,
 ):
     """One cached agent per filter combination."""
     return create_agent(
         model=ChatGroq(model=MODEL, temperature=0),
-        tools=[build_tool(country, date_posted, limit, remote_only, skills)],
+        tools=[build_tool(country, date_posted, limit, remote_only, skills, location)],
         system_prompt=SYSTEM_PROMPT,
     )
 
@@ -293,11 +315,14 @@ def run_search(
     remote_only: bool,
     skills_tuple: tuple[str, ...],
 ):
-    """Cached so repeated identical queries don't burn API quota or LLM tokens."""
-    prompt = f"Find {role} jobs in {location}."
-    result = get_agent(country, date_posted, limit, remote_only, skills_tuple).invoke(
-        {"messages": [HumanMessage(content=prompt)]}
-    )
+    """Cached so repeated identical queries don't burn API quota or LLM tokens.
+
+    The location is bound into the tool, not left to the LLM's wording.
+    """
+    prompt = f"Find {role} jobs."
+    result = get_agent(
+        country, date_posted, limit, remote_only, skills_tuple, location
+    ).invoke({"messages": [HumanMessage(content=prompt)]})
     return extract_jobs(result["messages"])
 
 
@@ -323,7 +348,17 @@ with st.sidebar:
 
     render_html('<div class="side-title">Search settings</div>')
 
-    location = st.text_input("Preferred location", value="India")
+    country = st.selectbox(
+        "Country",
+        options=list(COUNTRY_LABELS),
+        format_func=lambda c: COUNTRY_LABELS[c],
+    )
+
+    city = st.selectbox(
+        "City",
+        options=["All cities"] + CITIES[country],
+    )
+    location = "" if city == "All cities" else city
     date_posted = st.selectbox(
         "Posted",
         options=["today", "3days", "week", "month"],
@@ -339,16 +374,6 @@ with st.sidebar:
 
     st.markdown('<div class="side-hint">How many results to fetch</div>', unsafe_allow_html=True)
     limit = st.slider("Results", 5, 20, 10, label_visibility="collapsed")
-
-    country = st.selectbox(
-        "Country",
-        options=["in", "us", "gb", "ca", "au", "de", "sg", "ae"],
-        format_func=lambda c: {
-            "in": "India", "us": "United States", "gb": "United Kingdom",
-            "ca": "Canada", "au": "Australia", "de": "Germany",
-            "sg": "Singapore", "ae": "UAE",
-        }[c],
-    )
 
     st.divider()
     render_html('<div class="side-title">Your skills</div>')
@@ -634,7 +659,7 @@ else:
             st.dataframe(pd.DataFrame(salary_rows), use_container_width=True, hide_index=True)
         else:
             st.caption("None of these postings disclose a salary.")
-
+3
 render_html(
     """
     <div class="footer-note">
