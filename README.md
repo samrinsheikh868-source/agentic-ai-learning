@@ -2,6 +2,8 @@
 
 A Streamlit app that searches live job listings (JSearch / OpenWeb Ninja), scores
 them against a list of skills, and lets you shortlist, compare and export them.
+**Live demo:** https://career-lens-app.streamlit.app
+
 
 ## Features
 
