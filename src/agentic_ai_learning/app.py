@@ -4,6 +4,7 @@ import html
 import json
 import os
 import textwrap
+import time
 
 import pandas as pd
 import requests
@@ -281,6 +282,27 @@ def jobs_frame(jobs: list[dict], skills: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ------------------------------------------------------------------ caching
+@st.cache_data(ttl=900, show_spinner=False)
+def run_search(
+    role: str,
+    location: str,
+    country: str,
+    date_posted: str,
+    limit: int,
+    remote_only: bool,
+    skills_tuple: tuple[str, ...],
+):
+    """Cached so repeated identical queries don't burn API quota or LLM tokens."""
+    prompt = f"Find {role} jobs in {location}."
+    result = get_agent(country, date_posted, limit, remote_only, skills_tuple).invoke(
+        {"messages": [HumanMessage(content=prompt)]}
+    )
+    return extract_jobs(result["messages"])
+
+
+SEARCH_COOLDOWN_SECONDS = 8
+
 # ------------------------------------------------------------------ state
 for key, default in (("jobs", []), ("saved", {}), ("searched", False), ("error", None)):
     if key not in st.session_state:
@@ -374,20 +396,30 @@ with st.container(border=True):
     with col2:
         run = st.button("Search jobs", type="primary", use_container_width=True)
 
+st.caption("Results are cached for 15 minutes · max 1 search every 8 seconds")
+
 if run:
     if not role.strip():
         st.warning("Enter a role or keywords first.")
+    elif time.time() - st.session_state.get("last_run_at", 0) < SEARCH_COOLDOWN_SECONDS:
+        wait = SEARCH_COOLDOWN_SECONDS - int(
+            time.time() - st.session_state.get("last_run_at", 0)
+        )
+        st.warning(f"Please wait {wait}s before the next search.")
     else:
-        prompt = f"Find {role.strip()} jobs in {location.strip() or 'India'}."
+        st.session_state.last_run_at = time.time()
 
         with st.spinner("Searching live listings…"):
             try:
-                result = get_agent(
-                    country, date_posted, limit, remote_only, tuple(skills)
-                ).invoke(
-                    {"messages": [HumanMessage(content=prompt)]}
+                st.session_state.jobs = run_search(
+                    role.strip(),
+                    location.strip() or "India",
+                    country,
+                    date_posted,
+                    limit,
+                    remote_only,
+                    tuple(skills),
                 )
-                st.session_state.jobs = extract_jobs(result["messages"])
                 st.session_state.error = None
                 st.session_state.searched = True
             except Exception as exc:  # noqa: BLE001

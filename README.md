@@ -108,3 +108,10 @@ Scoring in code before truncating keeps the score accurate *and* the payload sma
 - Groq free tier: 8K tokens/minute — 10 jobs with long descriptions can hit it.
 - JSearch free tier: 200 requests/month.
 - No authentication or multi-user state; shortlist lives in one browser session.
+
+## Live demo
+
+Deployed on Streamlit Community Cloud: results are cached for 15 minutes and
+searches are throttled to one every 8 seconds, because the free tiers are small
+(JSearch: 200 requests/month, Groq: 8K tokens/minute). Heavy use will hit those
+limits — that is a quota limit, not a bug.
